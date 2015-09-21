@@ -1,39 +1,58 @@
-function [fidx,val,max_ig] = dt_choose_feature_multi(X, Z, Xrange, colidx)
+function root = build_dt(X, Y, depth_limit)
 
-[N,K]=size(Z);
-fidx=0;
-H = multi_entropy(sum(Z)/sum(sum(Z)));
-ig = zeros(numel(Xrange), 1);
-split_vals = zeros(numel(Xrange), 1);
-fprintf('Evaluating features on %d examples: ', numel(Z));
-for i = colidx
+for i = 1:size(X, 2)
+    Xrange{i} = unique(X(:,i));
+end
+orginal_value=[grpstats(zeros(1,size(Y,1)),Y,'numel')/size(Y,1) unique(Y)];
+root = split_node_multi(X, Y, Xrange,orginal_value, 1:size(Xrange, 2), 0, depth_limit);
 
-    % Check for constant values.
-    if numel(Xrange{i}) == 1
-        ig(i) = 0; split_vals(i) = 0;
-        continue;
+function [node] = split_node_multi(X, Y, Xrange, default_value, colidx, depth, depth_limit)
+if depth == depth_limit || numel(unique(Y))==1 || numel(Y) <= 1 || numel(colidx) == 0
+    node.terminal = true;
+    node.fidx = [];
+    node.fval = [];
+    if numel(Y) == 0
+        node.value = default_value;
+    else
+        node.value = [grpstats(zeros(1,size(Y,1)),Y,'numel')/size(Y,1) unique(Y)];
     end
+    node.left = []; node.right = [];
     
-    % Compute up to 10 possible splits of the feature.
-    r = linspace(double(Xrange{i}(1)), double(Xrange{i}(end)), min(10, numel(Xrange{i})));
-    split_f = bsxfun(@le, X(:,i), r(1:end-1));
-    
-    % Compute conditional entropy of all possible splits.
-    px = mean(split_f);
-    
-    for k = 1:size(split_f,2)
-        y_given_x{k} = bsxfun(@and, Z, split_f(:,k));
-        y_given_notx{k} = bsxfun(@and, Z, ~split_f(:,k));
-    end
-    cond_H=zeros(1,size(split_f,2));
-    for k=1:size(split_f,2)
-    cond_H(k) = px(k).*multi_entropy( sum(y_given_x{k})/sum(sum(y_given_x{k}))) + ...
-        (1-px(k)).*multi_entropy(sum(y_given_notx{k})/sum(sum(y_given_notx{k})));
-    end
-    % Choose split with best IG, and record the value split on.
-    [ig(i) best_split] = max(H-cond_H);
-    split_vals(i) = r(best_split);
+    fprintf('depth %d [%d/%d]: Leaf node: = %s\n', depth, sum(Y==0), sum(Y==1), ...
+        mat2str(node.value));
+    return;
 end
 
-[max_ig fidx] = max(ig);
-val = split_vals(fidx);
+node.terminal = false;
+N=length(Y);
+Yrange=unique(Y);
+Z=zeros(N,length(Yrange));
+
+for k =1:length(Yrange)
+    kidx=find(Y==Yrange(k));
+    Z(kidx,k)=1;
+end
+
+% Choose a feature to split on using information gain.
+[node.fidx node.fval max_ig] = dt_choose_feature_multi(X,Z, Xrange, colidx);
+
+% Remove this feature from future consideration.
+colidx(colidx==node.fidx) = [];
+
+% Split the data based on this feature.
+leftidx = find(X(:,node.fidx)<=node.fval);
+rightidx = find(X(:,node.fidx)>node.fval);
+
+
+
+% Store the value of this node in case we later wish to use this node as a
+% terminal node (i.e. pruning.)
+node.value = [grpstats(zeros(1,size(Y,1)),Y,'numel')/size(Y,1) unique(Y)];
+
+fprintf('depth %d [%d]: Split on feature %d <= %.2f w/ IG = %.2g (L/R = %d/%d)\n', ...
+    depth, numel(Y), node.fidx, node.fval, max_ig, numel(leftidx), numel(rightidx));
+
+% Recursively generate left and right branches.
+
+node.left = split_node_multi(X(leftidx, :), Y(leftidx), Xrange, node.value, colidx, depth+1, depth_limit);
+node.right = split_node_multi(X(rightidx, :), Y(rightidx), Xrange, node.value, colidx, depth+1, depth_limit);
