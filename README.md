@@ -1,5 +1,5 @@
 # decision-tree
-build a decision tree for a dataset multi-class labels
+build a decision tree for a dataset with multi-class labels
 
 
 test the decision tree on MNIST digit dataset.(consists of roughly 54,000 training examples and 9,000
